@@ -1,0 +1,214 @@
+---
+title: "Multivariate Statistics Project: Three-way Anova"
+author: "Kutlo Baldwin Mogorosi"
+date: "18/05/2021"
+output: html_document
+---
+Problem Description
+
+I am required to solve a problem using the Three-way ANOVA model. The problem that I identified to solve is related to heart diseases. It has to do with reducing heart attacks. This will happen by examining the potential of new class of drugs that will decrease cholesterol concentration. As a result solve the problem which is reducing heart attacks.
+
+# Three-way ANOVA 
+The following packages are required. 
+•	tidyverse for data manipulation and visualization
+•	ggpubr for creating easily publication ready plots
+•	rstatix provides pipe-friendly R functions for easy statistical analyses
+•	datarium: contains required data sets for this project
+
+Key R functions: anova_test() found in [rstatix package], wrapper around the function car::Anova().
+
+## Loading packages
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+require(tidyverse) #for data manipulation and visualization
+require(ggpubr)	#for creating easily publication ready plots
+require(rstatix)# provides pipe-friendly R functions for easy statistical analyses
+require(datarium)#contains required data sets for this project
+require(emmeans)# For post-hoc test (pairwise comparisons)
+
+
+
+
+
+
+
+```
+## Data preparation
+In the data preparation phase I'll use the heartattack dataset [datarium package], which contains the measures of  cholesterol concentration in 72 participants which is decreased with three different drugs. The participants include 36 males and 36 females. Males and females were further subdivided into whether they were at low or high risk of heart attack.
+I want to understand how each independent variable (type of drug, risk of heart attack and gender) interact to predict the cholesterol concentration.
+
+
+
+##Load the data and inspect one random row by group combinations:
+```{r data, echo=FALSE}
+set.seed(123)
+data("heartattack", package = "datarium")
+heartattack %>% sample_n_by(gender, risk, drug, size = 1)
+```
+##In our case, the effect of the drug types is our primary concern ,thus it is our focal variable. It is believed that the effect of drugs will depend on two other factors, “gender” and “risk” level of heart attack, which are called moderator variables.
+
+
+
+
+```{r data, echo=FALSE }
+heartattack %>%
+  group_by(gender, risk, drug) %>%
+  get_summary_stats(cholesterol, type = "mean_sd")
+
+
+```
+
+
+
+```{r cars}
+bxp <- ggboxplot(heartattack, x = "drug", y = "cholesterol",  color = "risk", palette = "jco", facet.by = "gender" )
+bxp
+```
+##The boxplot above shows us that males have high cholesterol and that they have a high risk of getting a heart attack.
+
+
+
+
+
+```{r cars}
+heartattack %>%
+ group_by(gender, risk, drug) %>%
+ identify_outliers(cholesterol)
+```
+##We can clearly see in the table above that, the data contains a single extreme outlier (id = 57, female at high risk of heart attack taking drug A). The reason for the outlier can be due to unusual values, measurement errors or data entry errors.
+
+
+
+
+
+
+```{r cars}
+model <- lm( cholesterol~ gender*risk*drug, data =heartattack )
+# Create a QQ plot of residuals
+ggqqplot(residuals(model))
+# Compute Shapiro-Wilk test of normality
+shapiro_test(residuals(model))
+
+```
+##As we can see in the QQ plot of residuals above, all the points lie approximately along the reference line, we can then assume normality. This conclusion is supported by the Shapiro-Wilk test. The p-value is not significant (p = 0.4), so we can assume normality.
+
+
+
+```{r cars}
+heartattack %>%
+ group_by(gender, risk, drug) %>%
+ shapiro_test(cholesterol)
+```
+##In the table above I can see that the cholesterol were normally distributed (p > 0.05) except for one group (female at high risk of heart attack taking drug A, p = 0.0086), as assessed by Shapiro-Wilk’s test of normality.
+
+
+```{r cars}
+ggqqplot(heartattack, "cholesterol", ggtheme = theme_bw()) +facet_grid(gender + risk ~ drug, labeller = "label_both")
+```
+##In the output above I observed that all the points fall approximately along the reference line, except for one group (female at high risk of heart attack taking drug A),in which I have already identified it as an extreme outlier.
+
+
+```{r cars}
+heartattack %>% levene_test( cholesterol~ gender*risk*drug)
+```
+##In our case as indicated by the table above the Levene’s test is not significant (p > 0.05). Therefore, we can assume the homogeneity of variances in the different groups.
+
+
+
+```{r cars}
+res.aov <- heartattack %>% anova_test(cholesterol ~ gender*risk*drug)
+res.aov
+```
+#In the anova table above I observed that there was a statistically significant three-way interaction between gender, risk and drug, F(2, 60) = 7.406, p = 0.001.
+
+
+
+
+```{r cars}
+# Group the data by gender and
+# fit simple two-way interaction
+
+model <- lm( cholesterol~ gender*risk*drug, data = heartattack)
+heartattack %>%
+  group_by(gender) %>%
+   anova_test( cholesterol~ risk*drug, error = model)
+```
+
+##In the table above I observed that there was a statistically significant simple two-way interaction between risk and drug (risk:drug) for males, F(2, 60) = 5.252, p = 0.008, but not for females, F(2, 60) = 2.868, p= 0.065 since (p > 0.05) .I also observed that for males, this result suggests that the effect of drug on “cholesterol” depends on one’s“risk” of heart attack. In simple terms, the risk moderates the effect of the type of drug on cholesterol.
+
+
+
+
+```{r cars}
+# Group the data by gender and risk, and fit anova
+drug.effect <- heartattack %>%
+  group_by(gender, risk) %>%
+ anova_test(cholesterol ~ drug, error =model )
+  drug.effect %>% filter(gender == "male")
+```
+#In the table above I observed that there is a statistically significant simple simple main effect of drug for males at high risk of heart attack, F(2, 60) = 14.8, p < 0.0001), but not for males at low risk of heart attack, F(2,60) = 0.66, p = 0.521.The analysis made indicates that, the type of drug taken has a statistically significant effect on cholesterol in males who are at high risk. In other words, the mean cholesterol in the drug A, B and C groups was statistically significantly different for males who at high risk, but not for males  at low risk.
+
+
+```{r cars}
+# Pairwise comparisons
+pwc <- heartattack %>%
+ group_by(gender, risk) %>%
+ emmeans_test(cholesterol ~ drug, p.adjust.method = "bonferroni") %>%
+ select(-df, -statistic, -p) # Remove details
+# Show comparison results for male at high risk
+pwc %>% filter(gender == "male", risk == "high")
+```
+
+
+```{r cars}
+# Estimated marginal means (i.e. adjusted means)
+# with 95% confidence interval
+get_emmeans(pwc) %>% filter(gender == "male", risk == "high")
+```
+
+##In the pairwise comparisons table above I observed that,for male at high risk, there was a statistically significant mean difference between drug A and drug B of 0.686767(p.adj < 0.001), and between drug A and drug C of 0.86252 (p.adj< 0.0001).But, the difference between drug B and drug C (2.66) was not statistically significant, p.adj = 0.897.
+
+
+
+
+Report
+
+I conducted a three-way ANOVA to determine the effects of gender, risk and drug on cholesterol concentration which the levels contribute directly to a person getting a heart attack.
+I performed a Residual analysis to test for the assumptions of the three-way ANOVA.
+
+I assessed Normality by utilizing the Shapiro-Wilk’s normality test. I also assessed the homogeneity of variances by using the Levene’s test.
+I observed that the Residuals were normally distributed (p > 0.05) and there was homogeneity of variances (p >0.05).
+
+
+I discovered that there was a statistically significant three-way interaction between gender, risk and drug, F(2, 60) = 7.406, p = 0.001.
+A statistical significance was accepted at the p < 0.025 level for simple two-way interactions and simple simple main effects. There was a statistically significant simple two-way interaction between risk and drug for males, F(2, 60) = 5.252, p = 0.008, but not for females, F(2, 60) = 2.868, p= 0.065 since (p > 0.05).
+
+I also discovered there was a statistically significant simple simple main effect of drug for males at high risk of heart attack, F(2, 60) = 14.8, p < 0.0001), but not for males at low risk of heart attack, F(2,60) = 0.66, p = 0.521.
+
+In conclusion all simple simple pairwise comparisons, between the different drug groups, were run for males at high risk of heart attack with a Bonferroni adjustment applied. There was a statistically significant mean difference between drug A and drug B. But, the difference between drug B and drug C, was not statistically significant.
+
+
+```{r cars}
+# Visualization: box plots with p-values
+pwc <- pwc %>% add_xy_position(x = "drug")
+pwc.filtered <- pwc %>% filter(gender == "male", risk == "high")
+bxp +
+ stat_pvalue_manual(
+ pwc.filtered, color = "risk", linetype = "risk", hide.ns = TRUE,
+ tip.length = 0, step.increase = 0.1, step.group.by = "gender"
+ ) +
+ labs(
+ subtitle = get_test_label(res.aov, detailed = TRUE),
+ caption = get_pwc_label(pwc)
+ )
+```
+
+
+
+
+
+
+
+
+
+
